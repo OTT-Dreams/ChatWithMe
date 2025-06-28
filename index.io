@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Drive Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <style>
+    body { font-family: Arial; max-width: 600px; margin: auto; padding: 20px; }
+    #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
+    input, button { padding: 10px; margin-top: 10px; width: 100%; }
+  </style>
+</head>
+<body>
+
+<h2>Drive Chat</h2>
+<div id="login"></div>
+
+<div id="chatUI" style="display:none">
+  <div id="chat"></div>
+  <input id="msg" placeholder="Type a message">
+  <button onclick="send()">Send</button>
+</div>
+
+<script>
+const CLIENT_ID = "YOUR_CLIENT_ID";
+const API_KEY = "YOUR_API_KEY";
+const FOLDER_ID = "YOUR_FOLDER_ID"; // where messages.json will live
+let tokenClient, gapiInited = false, gisInited = false;
+let fileId = null;
+let messages = [];
+
+function gapiLoaded() {
+  gapi.load('client', async () => {
+    await gapi.client.init({ apiKey: API_KEY });
+    gapiInited = true;
+    maybeEnableChat();
+  });
+}
+
+function gisLoaded() {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: (resp) => {
+      gapi.client.setToken(resp);
+      listOrCreateFile();
+    },
+  });
+  document.getElementById('login').innerHTML = '<button onclick="tokenClient.requestAccessToken()">Sign in with Google</button>';
+  gisInited = true;
+  maybeEnableChat();
+}
+
+function maybeEnableChat() {
+  if (gapiInited && gisInited) {
+    document.getElementById('login').style.display = 'block';
+  }
+}
+
+async function listOrCreateFile() {
+  const res = await gapi.client.drive.files.list({
+    q: `'${FOLDER_ID}' in parents and name = 'messages.json' and trashed = false`,
+    fields: 'files(id, name)',
+  });
+
+  if (res.result.files.length > 0) {
+    fileId = res.result.files[0].id;
+    loadMessages();
+  } else {
+    const blob = new Blob([JSON.stringify([])], { type: 'application/json' });
+    const metadata = { name: 'messages.json', parents: [FOLDER_ID], mimeType: 'application/json' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', blob);
+
+    const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST',
+      headers: new Headers({ Authorization: 'Bearer ' + gapi.auth.getToken().access_token }),
+      body: form,
+    });
+
+    const result = await upload.json();
+    fileId = result.id;
+    messages = [];
+    showMessages();
+  }
+
+  document.getElementById('chatUI').style.display = 'block';
+  document.getElementById('login').style.display = 'none';
+}
+
+async function loadMessages() {
+  const res = await gapi.client.drive.files.get({
+    fileId: fileId,
+    alt: 'media'
+  });
+  messages = res.body ? JSON.parse(res.body) : [];
+  showMessages();
+}
+
+function showMessages() {
+  document.getElementById('chat').innerHTML = messages.map(m => `<p><b>${m.user}</b>: ${m.text}</p>`).join('');
+}
+
+async function send() {
+  const msg = document.getElementById('msg').value.trim();
+  if (!msg) return;
+
+  const profile = google.accounts.id.get();
+  messages.push({ user: profile?.email || "Unknown", text: msg, time: new Date().toISOString() });
+
+  const blob = new Blob([JSON.stringify(messages)], { type: 'application/json' });
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify({ mimeType: 'application/json' })], { type: 'application/json' }));
+  form.append('file', blob);
+
+  await fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=multipart', {
+    method: 'PATCH',
+    headers: new Headers({ Authorization: 'Bearer ' + gapi.auth.getToken().access_token }),
+    body: form,
+  });
+
+  document.getElementById('msg').value = '';
+  showMessages();
+}
+
+window.onload = () => {
+  gapiLoaded();
+  gisLoaded();
+};
+</script>
+
+</body>
+</html>
