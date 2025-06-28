@@ -2,11 +2,12 @@
 <html>
 <head>
   <title>Drive Chat</title>
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://apis.google.com/js/api.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
-    body { font-family: Arial; max-width: 600px; margin: auto; padding: 20px; }
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; }
     #chat { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; }
     input, button { padding: 10px; margin-top: 10px; width: 100%; }
   </style>
@@ -14,121 +15,149 @@
 <body>
 
 <h2>Drive Chat</h2>
-<div id="login"></div>
+<button id="authorize_button" style="display:none;">Sign in with Google</button>
+<button id="signout_button" style="display:none;">Sign Out</button>
 
-<div id="chatUI" style="display:none">
+<div id="chatUI" style="display:none;">
   <div id="chat"></div>
-  <input id="msg" placeholder="Type a message">
+  <input id="msg" placeholder="Type your message here">
   <button onclick="send()">Send</button>
 </div>
 
 <script>
-const CLIENT_ID = "223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com";
-const API_KEY = "AIzaSyD41ZNerRUG1BhWZIReWxIUvYDoHXLrVuw";
-const FOLDER_ID = "1IrGrZRsN90Eifzes7robm8ESg9tijudo"; // messages.json will be stored here
-let tokenClient, gapiInited = false, gisInited = false;
-let fileId = null;
-let messages = [];
+  const CLIENT_ID = "223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com";
+  const API_KEY = "AIzaSyD41ZNerRUG1BhWZIReWxIUvYDoHXLrVuw";
+  const FOLDER_ID = "1IrGrZRsN90Eifzes7robm8ESg9tijudo"; // Your Drive folder ID
 
-function gapiLoaded() {
-  gapi.load('client', async () => {
+  let gapiInited = false;
+  let gisInited = false;
+  let tokenClient;
+  let fileId = null;
+  let messages = [];
+
+  function gapiLoaded() {
+    gapi.load('client', initializeGapiClient);
+  }
+
+  async function initializeGapiClient() {
     await gapi.client.init({ apiKey: API_KEY });
     gapiInited = true;
-    maybeEnableChat();
-  });
-}
-
-function gisLoaded() {
-  tokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    callback: (resp) => {
-      gapi.client.setToken(resp);
-      listOrCreateFile();
-    },
-  });
-  document.getElementById('login').innerHTML = '<button onclick="tokenClient.requestAccessToken()">Sign in with Google</button>';
-  gisInited = true;
-  maybeEnableChat();
-}
-
-function maybeEnableChat() {
-  if (gapiInited && gisInited) {
-    document.getElementById('login').style.display = 'block';
+    maybeEnableButtons();
   }
-}
 
-async function listOrCreateFile() {
-  const res = await gapi.client.drive.files.list({
-    q: `'${FOLDER_ID}' in parents and name = 'messages.json' and trashed = false`,
-    fields: 'files(id, name)',
-  });
+  function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: (resp) => {
+        if (resp.error) return;
+        gapi.client.setToken(resp);
+        onLoggedIn();
+      }
+    });
+    gisInited = true;
+    maybeEnableButtons();
+  }
 
-  if (res.result.files.length > 0) {
-    fileId = res.result.files[0].id;
-    loadMessages();
-  } else {
-    const blob = new Blob([JSON.stringify([])], { type: 'application/json' });
-    const metadata = { name: 'messages.json', parents: [FOLDER_ID], mimeType: 'application/json' };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', blob);
+  function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+      document.getElementById('authorize_button').style.display = 'inline-block';
+      document.getElementById('authorize_button').onclick = () => tokenClient.requestAccessToken({ prompt: '' });
+    }
+  }
 
-    const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: new Headers({ Authorization: 'Bearer ' + gapi.auth.getToken().access_token }),
-      body: form,
+  function onLoggedIn() {
+    document.getElementById('authorize_button').style.display = 'none';
+    document.getElementById('signout_button').style.display = 'inline-block';
+    document.getElementById('signout_button').onclick = handleSignoutClick;
+    listOrCreateFile();
+  }
+
+  function handleSignoutClick() {
+    const token = gapi.client.getToken();
+    if (token) {
+      google.accounts.oauth2.revoke(token.access_token);
+      gapi.client.setToken('');
+    }
+    location.reload();
+  }
+
+  async function listOrCreateFile() {
+    const res = await gapi.client.drive.files.list({
+      q: `'${FOLDER_ID}' in parents and name = 'messages.json' and trashed = false`,
+      fields: 'files(id, name)'
     });
 
-    const result = await upload.json();
-    fileId = result.id;
-    messages = [];
+    if (res.result.files.length > 0) {
+      fileId = res.result.files[0].id;
+      loadMessages();
+    } else {
+      const metadata = {
+        name: "messages.json",
+        mimeType: "application/json",
+        parents: [FOLDER_ID]
+      };
+      const blob = new Blob([JSON.stringify([])], { type: "application/json" });
+      const form = new FormData();
+      form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
+      form.append("file", blob);
+
+      const upload = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+        method: "POST",
+        headers: new Headers({ Authorization: "Bearer " + gapi.auth.getToken().access_token }),
+        body: form
+      });
+
+      const result = await upload.json();
+      fileId = result.id;
+      messages = [];
+      showMessages();
+    }
+
+    document.getElementById('chatUI').style.display = 'block';
+  }
+
+  async function loadMessages() {
+    const res = await gapi.client.drive.files.get({
+      fileId: fileId,
+      alt: "media"
+    });
+    messages = res.body ? JSON.parse(res.body) : [];
     showMessages();
   }
 
-  document.getElementById('chatUI').style.display = 'block';
-  document.getElementById('login').style.display = 'none';
-}
+  function showMessages() {
+    document.getElementById("chat").innerHTML = messages.map(
+      m => `<p><b>${m.user}</b>: ${m.text}</p>`
+    ).join("");
+  }
 
-async function loadMessages() {
-  const res = await gapi.client.drive.files.get({
-    fileId: fileId,
-    alt: 'media'
-  });
-  messages = res.body ? JSON.parse(res.body) : [];
-  showMessages();
-}
+  async function send() {
+    const msg = document.getElementById("msg").value.trim();
+    if (!msg) return;
 
-function showMessages() {
-  document.getElementById('chat').innerHTML = messages.map(m => `<p><b>${m.user}</b>: ${m.text}</p>`).join('');
-}
+    const user = "User"; // You can later replace this with profile info
+    messages.push({ user, text: msg, time: new Date().toISOString() });
 
-async function send() {
-  const msg = document.getElementById('msg').value.trim();
-  if (!msg) return;
+    const blob = new Blob([JSON.stringify(messages)], { type: "application/json" });
+    const form = new FormData();
+    form.append("metadata", new Blob([JSON.stringify({ mimeType: "application/json" })], { type: "application/json" }));
+    form.append("file", blob);
 
-  const user = gapi.client.getToken()?.access_token ? "User" : "Unknown";
-  messages.push({ user: user, text: msg, time: new Date().toISOString() });
+    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`, {
+      method: "PATCH",
+      headers: new Headers({ Authorization: "Bearer " + gapi.auth.getToken().access_token }),
+      body: form
+    });
 
-  const blob = new Blob([JSON.stringify(messages)], { type: 'application/json' });
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify({ mimeType: 'application/json' })], { type: 'application/json' }));
-  form.append('file', blob);
+    document.getElementById("msg").value = "";
+    showMessages();
+  }
 
-  await fetch('https://www.googleapis.com/upload/drive/v3/files/' + fileId + '?uploadType=multipart', {
-    method: 'PATCH',
-    headers: new Headers({ Authorization: 'Bearer ' + gapi.auth.getToken().access_token }),
-    body: form,
-  });
-
-  document.getElementById('msg').value = '';
-  showMessages();
-}
-
-window.onload = () => {
-  gapiLoaded();
-  gisLoaded();
-};
+  window.onload = () => {
+    gapiLoaded();
+    gisLoaded();
+  };
 </script>
 </body>
 </html>
