@@ -25,7 +25,7 @@
 <script>
 const CLIENT_ID = "223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com";
 const API_KEY = "AIzaSyD41ZNerRUG1BhWZIReWxIUvYDoHXLrVuw";
-const FOLDER_ID = "1IrGrZRsN90Eifzes7robm8ESg9tijudo"; // where messages.json will live
+const FOLDER_ID = "1IrGrZRsN90Eifzes7robm8ESg9tijudo"; // messages.json will be stored here
 let tokenClient, gapiInited = false, gisInited = false;
 let fileId = null;
 let messages = [];
@@ -107,8 +107,8 @@ async function send() {
   const msg = document.getElementById('msg').value.trim();
   if (!msg) return;
 
-  const profile = google.accounts.id.get();
-  messages.push({ user: profile?.email || "Unknown", text: msg, time: new Date().toISOString() });
+  const user = gapi.client.getToken()?.access_token ? "User" : "Unknown";
+  messages.push({ user: user, text: msg, time: new Date().toISOString() });
 
   const blob = new Blob([JSON.stringify(messages)], { type: 'application/json' });
   const form = new FormData();
@@ -130,6 +130,5 @@ window.onload = () => {
   gisLoaded();
 };
 </script>
-
 </body>
 </html>
