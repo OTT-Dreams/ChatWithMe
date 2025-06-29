@@ -181,7 +181,7 @@
         document.getElementById('chat_box').style.display = 'flex';
         await getUserInfo();
         const ok = await checkOrCreateUserProfile();
-        if (!ok) return alert("Please create your account to start chatting.");
+        if (!ok) return; // Removed confusing alert here
       };
       if (gapi.client.getToken() === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
