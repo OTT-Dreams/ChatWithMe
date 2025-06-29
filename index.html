@@ -93,6 +93,8 @@
     }
     #username_prompt input {
       padding: 0.5rem;
+      border: none;
+      border-radius: 4px;
     }
     #username_prompt button {
       padding: 0.5rem;
@@ -205,6 +207,8 @@
         document.getElementById('authorize_button').innerText = 'Authorize';
         document.getElementById('signout_button').style.visibility = 'hidden';
         document.getElementById('chat_box').style.display = 'none';
+        profileLoaded = false;
+        currentUsername = "";
       }
     }
 
