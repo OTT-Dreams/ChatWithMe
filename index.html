@@ -180,7 +180,10 @@
         document.getElementById('chat_box').style.display = 'flex';
         await getUserInfo();
         const ok = await checkOrCreateUserProfile();
-        if (!ok) return;
+        if (!ok) {
+          alert("Please create your account to start chatting.");
+          return;
+        }
         loadMessages();
       };
       if (gapi.client.getToken() === null) {
