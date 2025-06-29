@@ -122,10 +122,10 @@
   <div id="chat_box">
     <input type="text" id="recipient_input" placeholder="To (username)..." />
     <input type="text" id="message_input" placeholder="Type a message..." />
-    <button id="send_button" onclick="sendMessage()">Send</button>
+    <button id="send_button" type="button" onclick="sendMessage()">Send</button>
   </div>
   <div id="username_prompt" class="hidden">
-    <form onsubmit="submitUsername(event)">
+    <form id="username_form">
       <h3 style="margin:0;">Create Account</h3>
       <input type="text" id="username_input" placeholder="Enter a username" required />
       <button type="submit">Continue</button>
@@ -227,7 +227,7 @@
       }
     }
 
-    async function submitUsername(e) {
+    document.getElementById("username_form").addEventListener("submit", async function(e) {
       e.preventDefault();
       const username = document.getElementById("username_input").value.trim();
       if (!username) return;
@@ -246,15 +246,22 @@
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       form.append('file', blob);
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: new Headers({ Authorization: 'Bearer ' + token }),
         body: form
       });
+
+      if (!res.ok) {
+        alert("Failed to save profile. Try again.");
+        return;
+      }
+
       currentUsername = username;
       profileLoaded = true;
       document.getElementById('username_prompt').classList.add('hidden');
-    }
+    });
 
     async function sendMessage() {
       const input = document.getElementById('message_input');
