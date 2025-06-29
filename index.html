@@ -76,6 +76,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      z-index: 999;
     }
     #username_prompt.hidden {
       display: none;
@@ -100,6 +101,11 @@
       border: none;
       border-radius: 5px;
       cursor: pointer;
+    }
+    #username_prompt small {
+      color: #aaa;
+      font-size: 0.85rem;
+      text-align: center;
     }
     @media (max-width: 600px) {
       #chat_box {
@@ -128,6 +134,7 @@
     <form id="username_form">
       <h3 style="margin:0;">Create Account</h3>
       <input type="text" id="username_input" placeholder="Enter a username" required />
+      <small>This username will be used for receiving messages.</small>
       <button type="submit">Continue</button>
     </form>
   </div>
@@ -181,7 +188,7 @@
         document.getElementById('chat_box').style.display = 'flex';
         await getUserInfo();
         const ok = await checkOrCreateUserProfile();
-        if (!ok) return; // Removed confusing alert here
+        if (!ok) return;
       };
       if (gapi.client.getToken() === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
