@@ -22,13 +22,13 @@
       font-size: 1.5rem;
     }
     #auth_wrapper {
-      flex: 1;
       display: flex;
-      align-items: center;
       justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      padding: 1rem;
     }
     #authorize_button, #signout_button {
-      margin: 0.5rem;
       padding: 0.7rem 1.5rem;
       font-size: 1rem;
       background: #0f62fe;
@@ -67,16 +67,18 @@
       cursor: pointer;
     }
     #username_prompt {
-      display: none;
       position: fixed;
       top: 0;
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0,0,0,0.8);
+      background: rgba(0, 0, 0, 0.8);
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    #username_prompt.hidden {
+      display: none;
     }
     #username_prompt form {
       background: #222;
@@ -85,6 +87,8 @@
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      width: 90%;
+      max-width: 400px;
     }
     #username_prompt input {
       padding: 0.5rem;
@@ -97,30 +101,35 @@
       border-radius: 5px;
       cursor: pointer;
     }
+    @media (max-width: 600px) {
+      #chat_box {
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      #send_button {
+        margin-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
   <header>Drive Chat App</header>
   <div id="auth_wrapper">
-    <div>
-      <button id="authorize_button" onclick="handleAuthClick()">Authorize</button>
-      <button id="signout_button" onclick="handleSignoutClick()">Sign Out</button>
-    </div>
+    <button id="authorize_button" onclick="handleAuthClick()">Authorize</button>
+    <button id="signout_button" onclick="handleSignoutClick()">Sign Out</button>
   </div>
   <div id="chat"></div>
   <div id="chat_box">
     <input type="text" id="message_input" placeholder="Type a message..." />
     <button id="send_button" onclick="sendMessage()">Send</button>
   </div>
-
-  <div id="username_prompt">
+  <div id="username_prompt" class="hidden">
     <form onsubmit="submitUsername(event)">
       <h3 style="margin:0;">Create Account</h3>
       <input type="text" id="username_input" placeholder="Enter a username" required />
       <button type="submit">Continue</button>
     </form>
   </div>
-
   <script>
     const CLIENT_ID = "223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com";
     const API_KEY = "AIzaSyD41ZNerRUG1BhWZIReWxIUvYDoHXLrVuw";
@@ -166,11 +175,9 @@
       tokenClient.callback = async (resp) => {
         if (resp.error !== undefined) throw (resp);
         token = gapi.client.getToken().access_token;
-
         document.getElementById('signout_button').style.visibility = 'visible';
         document.getElementById('authorize_button').innerText = 'Refresh';
         document.getElementById('chat_box').style.display = 'flex';
-
         await getUserInfo();
         const ok = await checkOrCreateUserProfile();
         if (!ok) return;
@@ -208,9 +215,8 @@
         q: `'${FOLDER_ID}' in parents and name='${filename}'`,
         fields: 'files(id)',
       });
-
       if (res.result.files.length === 0) {
-        document.getElementById('username_prompt').style.display = 'flex';
+        document.getElementById('username_prompt').classList.remove('hidden');
         return false;
       } else {
         const fileId = res.result.files[0].id;
@@ -226,14 +232,12 @@
       e.preventDefault();
       const username = document.getElementById("username_input").value.trim();
       if (!username) return;
-
       const profile = {
         email: userInfo.email,
         name: userInfo.name,
         username: username,
         profilePic: userInfo.picture || ''
       };
-
       const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
       const metadata = {
         name: `user_${userInfo.email.replace(/[^a-zA-Z0-9]/g, '_')}.json`,
@@ -243,16 +247,14 @@
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       form.append('file', blob);
-
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: new Headers({ Authorization: 'Bearer ' + token }),
         body: form
       });
-
       currentUsername = username;
       profileLoaded = true;
-      document.getElementById('username_prompt').style.display = 'none';
+      document.getElementById('username_prompt').classList.add('hidden');
       loadMessages();
     }
 
@@ -287,8 +289,9 @@
     async function sendMessage() {
       const input = document.getElementById('message_input');
       if (!profileLoaded || !currentUsername) return alert("Please create your account first.");
-      const msg = `[${currentUsername}] ${input.value.trim()}`;
-      if (!msg) return;
+      const raw = input.value.trim();
+      if (!raw) return;
+      const msg = `[${currentUsername}] ${raw}`;
       input.value = '';
       currentMessages.push(msg);
       renderMessages();
@@ -299,22 +302,18 @@
         mimeType: 'text/plain',
         parents: [FOLDER_ID],
       };
-
       const res = await gapi.client.drive.files.list({
         q: `'${FOLDER_ID}' in parents and name='chat.txt'`,
         fields: 'files(id, name)',
       });
       const existingFileId = res.result.files[0]?.id;
-
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       form.append('file', blob);
-
       const method = existingFileId ? 'PATCH' : 'POST';
       const url = existingFileId
         ? `https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=multipart`
         : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-
       await fetch(url, {
         method: method,
         headers: new Headers({ 'Authorization': 'Bearer ' + token }),
@@ -322,7 +321,6 @@
       });
     }
   </script>
-
   <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
   <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 </body>
