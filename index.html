@@ -134,10 +134,10 @@
   </div>
   <div id="username_prompt" class="hidden">
     <form id="username_form">
-      <h3 style="margin:0;">Create Account</h3>
-      <input type="text" id="username_input" placeholder="Enter a username" required />
-      <small>This username will be used for receiving messages.</small>
-      <button type="submit">Continue</button>
+      <h3 style="margin:0;">Create Your Chat Account</h3>
+      <input type="text" id="username_input" placeholder="Choose a username" required />
+      <small>This name will be used to send & receive messages.</small>
+      <button type="submit">Save and Continue</button>
     </form>
   </div>
   <script>
@@ -229,12 +229,17 @@
         document.getElementById('username_prompt').classList.remove('hidden');
         return false;
       } else {
-        const fileId = res.result.files[0].id;
-        const fileRes = await gapi.client.drive.files.get({ fileId, alt: 'media' });
-        const profile = JSON.parse(fileRes.body);
-        currentUsername = profile.username;
-        profileLoaded = true;
-        return true;
+        try {
+          const fileId = res.result.files[0].id;
+          const fileRes = await gapi.client.drive.files.get({ fileId, alt: 'media' });
+          const profile = JSON.parse(fileRes.body);
+          currentUsername = profile.username;
+          profileLoaded = true;
+          return true;
+        } catch {
+          document.getElementById('username_prompt').classList.remove('hidden');
+          return false;
+        }
       }
     }
 
@@ -279,7 +284,7 @@
       const recipientInput = document.getElementById('recipient_input');
       const recipient = recipientInput.value.trim();
       const raw = input.value.trim();
-      if (!profileLoaded || !currentUsername) return alert("Please create your account first.");
+      if (!profileLoaded || !currentUsername) return;
       if (!raw || !recipient) return;
       const msg = `[${currentUsername}] ${raw}`;
       input.value = '';
