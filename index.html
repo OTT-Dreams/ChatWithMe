@@ -45,13 +45,14 @@
       flex: 1;
       overflow-y: auto;
       padding: 1rem;
+      background: #181818;
     }
     #chat_box {
       display: flex;
       padding: 1rem;
       background: #222;
     }
-    #message_input, #recipient_input {
+    #message_input {
       flex: 1;
       padding: 0.5rem;
       border: none;
@@ -65,49 +66,6 @@
       color: white;
       border-radius: 4px;
       cursor: pointer;
-    }
-    #username_prompt {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.8);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 999;
-    }
-    #username_prompt.hidden {
-      display: none;
-    }
-    #username_prompt form {
-      background: #222;
-      padding: 2rem;
-      border-radius: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-      width: 90%;
-      max-width: 400px;
-    }
-    #username_prompt input {
-      padding: 0.5rem;
-      border: none;
-      border-radius: 4px;
-    }
-    #username_prompt button {
-      padding: 0.5rem;
-      background: #0f62fe;
-      color: #fff;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #username_prompt small {
-      color: #aaa;
-      font-size: 0.85rem;
-      text-align: center;
     }
     @media (max-width: 600px) {
       #chat_box {
@@ -128,17 +86,8 @@
   </div>
   <div id="chat"></div>
   <div id="chat_box">
-    <input type="text" id="recipient_input" placeholder="To (username)..." />
     <input type="text" id="message_input" placeholder="Type a message..." />
     <button id="send_button" type="button" onclick="sendMessage()">Send</button>
-  </div>
-  <div id="username_prompt" class="hidden">
-    <form id="username_form">
-      <h3 style="margin:0;">Create Your Chat Account</h3>
-      <input type="text" id="username_input" placeholder="Choose a username" required />
-      <small>This name will be used to send & receive messages.</small>
-      <button type="submit">Save and Continue</button>
-    </form>
   </div>
   <script>
     const CLIENT_ID = "223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com";
@@ -150,6 +99,8 @@
     let tokenClient, token = '', userInfo = {};
     let gapiInited = false, gisInited = false;
     let profileLoaded = false, currentUsername = "";
+
+    const CHAT_FILE = "global_chat.txt";
 
     document.getElementById('authorize_button').style.visibility = 'hidden';
     document.getElementById('signout_button').style.visibility = 'hidden';
@@ -189,8 +140,9 @@
         document.getElementById('authorize_button').innerText = 'Refresh';
         document.getElementById('chat_box').style.display = 'flex';
         await getUserInfo();
-        const ok = await checkOrCreateUserProfile();
-        if (!ok) return;
+        currentUsername = userInfo.email.split('@')[0];
+        profileLoaded = true;
+        loadMessages();
       };
       if (gapi.client.getToken() === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -209,6 +161,7 @@
         document.getElementById('chat_box').style.display = 'none';
         profileLoaded = false;
         currentUsername = "";
+        document.getElementById('chat').innerHTML = '';
       }
     }
 
@@ -219,87 +172,26 @@
       userInfo = await res.json();
     }
 
-    async function checkOrCreateUserProfile() {
-      const filename = `user_${userInfo.email.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
+    async function loadMessages() {
       const res = await gapi.client.drive.files.list({
-        q: `'${FOLDER_ID}' in parents and name='${filename}'`,
+        q: `'${FOLDER_ID}' in parents and name='${CHAT_FILE}'`,
         fields: 'files(id)',
       });
-      if (res.result.files.length === 0) {
-        document.getElementById('username_prompt').classList.remove('hidden');
-        return false;
-      } else {
-        try {
-          const fileId = res.result.files[0].id;
-          const fileRes = await gapi.client.drive.files.get({ fileId, alt: 'media' });
-          const profile = JSON.parse(fileRes.body);
-          currentUsername = profile.username;
-          profileLoaded = true;
-          return true;
-        } catch {
-          document.getElementById('username_prompt').classList.remove('hidden');
-          return false;
-        }
-      }
+      const fileId = res.result.files[0]?.id;
+      if (!fileId) return;
+      const contentRes = await gapi.client.drive.files.get({ fileId, alt: 'media' });
+      document.getElementById('chat').textContent = contentRes.body;
     }
-
-    document.getElementById("username_form").addEventListener("submit", async function(e) {
-      e.preventDefault();
-      const username = document.getElementById("username_input").value.trim();
-      if (!username) return;
-      const profile = {
-        email: userInfo.email,
-        name: userInfo.name,
-        username: username,
-        profilePic: userInfo.picture || ''
-      };
-      const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
-      const metadata = {
-        name: `user_${userInfo.email.replace(/[^a-zA-Z0-9]/g, '_')}.json`,
-        mimeType: 'application/json',
-        parents: [FOLDER_ID]
-      };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      form.append('file', blob);
-
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: new Headers({ Authorization: 'Bearer ' + token }),
-        body: form
-      });
-
-      if (!res.ok) {
-        alert("Failed to save profile. Try again.");
-        return;
-      }
-
-      currentUsername = username;
-      profileLoaded = true;
-      document.getElementById('username_prompt').classList.add('hidden');
-    });
 
     async function sendMessage() {
       const input = document.getElementById('message_input');
-      const recipientInput = document.getElementById('recipient_input');
-      const recipient = recipientInput.value.trim();
       const raw = input.value.trim();
-      if (!profileLoaded || !currentUsername) return;
-      if (!raw || !recipient) return;
+      if (!profileLoaded || !currentUsername || !raw) return;
       const msg = `[${currentUsername}] ${raw}`;
       input.value = '';
 
-      const fileName = `inbox_${recipient}.txt`;
-      const fileContent = msg + "\n";
-      const blob = new Blob([fileContent], { type: 'text/plain' });
-      const metadata = {
-        name: fileName,
-        mimeType: 'text/plain',
-        parents: [FOLDER_ID],
-      };
-
       const res = await gapi.client.drive.files.list({
-        q: `'${FOLDER_ID}' in parents and name='${fileName}'`,
+        q: `'${FOLDER_ID}' in parents and name='${CHAT_FILE}'`,
         fields: 'files(id)',
       });
       const existingFileId = res.result.files[0]?.id;
@@ -307,10 +199,16 @@
       let existingContent = '';
       if (existingFileId) {
         const existingRes = await gapi.client.drive.files.get({ fileId: existingFileId, alt: 'media' });
-        existingContent = existingRes.body + fileContent;
+        existingContent = existingRes.body + "\n";
       }
 
-      const finalBlob = new Blob([existingContent || fileContent], { type: 'text/plain' });
+      const finalBlob = new Blob([existingContent + msg + "\n"], { type: 'text/plain' });
+      const metadata = {
+        name: CHAT_FILE,
+        mimeType: 'text/plain',
+        parents: [FOLDER_ID],
+      };
+
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       form.append('file', finalBlob);
@@ -325,6 +223,8 @@
         headers: new Headers({ 'Authorization': 'Bearer ' + token }),
         body: form
       });
+
+      loadMessages();
     }
   </script>
   <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
