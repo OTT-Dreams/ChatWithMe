@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Drive Chat App</title>
+  <title>Drive Chat App with Account</title>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
@@ -67,12 +67,33 @@
       top: 10px;
       left: 10px;
       padding: 6px 12px;
-      margin-right: 10px;
       z-index: 10;
     }
 
     #signout_button {
       left: 110px;
+    }
+
+    #profile-form {
+      display: none;
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.3);
+    }
+
+    #profile-form input {
+      padding: 8px;
+      margin: 10px 0;
+      width: 100%;
+    }
+
+    #profile-form button {
+      padding: 8px 15px;
     }
   </style>
 </head>
@@ -83,6 +104,12 @@
       <input type="text" id="input" placeholder="Type a message..." />
       <button id="send-btn">Send</button>
     </div>
+  </div>
+
+  <div id="profile-form">
+    <h3>Create Chat Account</h3>
+    <input type="text" id="profile-name" placeholder="Your Name" />
+    <button onclick="saveProfile()">Save</button>
   </div>
 
   <button id="authorize_button" onclick="handleAuthClick()">Authorize</button>
@@ -97,11 +124,11 @@
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest';
     const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-    let tokenClient;
-    let gapiInited = false;
-    let gisInited = false;
-    let fileId = null;
+    let tokenClient, gapiInited = false, gisInited = false;
+    let chatFileId = null, usersFileId = null;
     let folderId = '1IrGrZRsN90Eifzes7robm8ESg9tijudo';
+    let currentUser = {};
+    let userName = null;
 
     const messagesDiv = document.getElementById('messages');
     const input = document.getElementById('input');
@@ -115,10 +142,7 @@
     }
 
     async function initializeGapiClient() {
-      await gapi.client.init({
-        apiKey: API_KEY,
-        discoveryDocs: [DISCOVERY_DOC],
-      });
+      await gapi.client.init({ apiKey: API_KEY, discoveryDocs: [DISCOVERY_DOC] });
       gapiInited = true;
       maybeEnableButtons();
     }
@@ -127,7 +151,7 @@
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
-        callback: '', // will set later
+        callback: '',
       });
       gisInited = true;
       maybeEnableButtons();
@@ -144,6 +168,13 @@
         if (resp.error !== undefined) throw (resp);
         document.getElementById('signout_button').style.visibility = 'visible';
         document.getElementById('authorize_button').innerText = 'Refresh';
+
+        const tokenInfo = gapi.client.getToken();
+        const decoded = parseJwt(tokenInfo.access_token);
+        currentUser.email = decoded.email;
+
+        await findOrCreateUsersFile();
+        await checkUserProfile();
         await findChatFile();
         await loadMessages();
       };
@@ -155,26 +186,101 @@
       }
     }
 
+    function parseJwt(token) {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      return JSON.parse(decodeURIComponent(escape(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+      }).join(''))));
+    }
+
     function handleSignoutClick() {
       const token = gapi.client.getToken();
       if (token !== null) {
         google.accounts.oauth2.revoke(token.access_token);
         gapi.client.setToken('');
         messagesDiv.innerHTML = '';
+        userName = null;
         document.getElementById('authorize_button').innerText = 'Authorize';
         document.getElementById('signout_button').style.visibility = 'hidden';
       }
     }
 
-    async function findChatFile() {
+    async function findOrCreateUsersFile() {
       const res = await gapi.client.drive.files.list({
-        q: `'${folderId}' in parents and name='chat.txt' and trashed = false`,
-        fields: 'files(id, name)',
-        spaces: 'drive',
+        q: `'${folderId}' in parents and name='users.json' and trashed = false`,
+        fields: 'files(id)',
       });
 
       if (res.result.files.length > 0) {
-        fileId = res.result.files[0].id;
+        usersFileId = res.result.files[0].id;
+      } else {
+        const createRes = await gapi.client.drive.files.create({
+          resource: {
+            name: 'users.json',
+            mimeType: 'application/json',
+            parents: [folderId],
+          },
+          media: {
+            mimeType: 'application/json',
+            body: '[]',
+          },
+          fields: 'id',
+        });
+        usersFileId = createRes.result.id;
+      }
+    }
+
+    async function checkUserProfile() {
+      const res = await gapi.client.drive.files.get({
+        fileId: usersFileId,
+        alt: 'media',
+      });
+
+      const users = JSON.parse(res.body);
+      const found = users.find(u => u.email === currentUser.email);
+
+      if (found) {
+        userName = found.name;
+      } else {
+        document.getElementById('profile-form').style.display = 'block';
+      }
+    }
+
+    async function saveProfile() {
+      const nameInput = document.getElementById('profile-name');
+      const name = nameInput.value.trim();
+      if (!name) return alert("Please enter your name");
+      userName = name;
+
+      const res = await gapi.client.drive.files.get({
+        fileId: usersFileId,
+        alt: 'media',
+      });
+
+      const users = JSON.parse(res.body);
+      users.push({ email: currentUser.email, name });
+      const updated = JSON.stringify(users);
+
+      await gapi.client.request({
+        path: `/upload/drive/v3/files/${usersFileId}`,
+        method: 'PATCH',
+        params: { uploadType: 'media' },
+        headers: { 'Content-Type': 'application/json' },
+        body: updated,
+      });
+
+      document.getElementById('profile-form').style.display = 'none';
+    }
+
+    async function findChatFile() {
+      const res = await gapi.client.drive.files.list({
+        q: `'${folderId}' in parents and name='chat.txt' and trashed = false`,
+        fields: 'files(id)',
+      });
+
+      if (res.result.files.length > 0) {
+        chatFileId = res.result.files[0].id;
       } else {
         const createRes = await gapi.client.drive.files.create({
           resource: {
@@ -188,13 +294,13 @@
           },
           fields: 'id',
         });
-        fileId = createRes.result.id;
+        chatFileId = createRes.result.id;
       }
     }
 
     async function loadMessages() {
       const res = await gapi.client.drive.files.get({
-        fileId: fileId,
+        fileId: chatFileId,
         alt: 'media',
       });
       const lines = res.body.split('\n');
@@ -211,25 +317,23 @@
     }
 
     async function sendMessage() {
+      if (!userName) return alert("Create your chat account first!");
+
       const text = input.value.trim();
       if (!text) return;
 
       const current = await gapi.client.drive.files.get({
-        fileId: fileId,
+        fileId: chatFileId,
         alt: 'media',
       });
 
-      const newContent = current.body + '\nYou: ' + text;
+      const newContent = current.body + `\n${userName}: ${text}`;
 
       await gapi.client.request({
-        path: `/upload/drive/v3/files/${fileId}`,
+        path: `/upload/drive/v3/files/${chatFileId}`,
         method: 'PATCH',
-        params: {
-          uploadType: 'media',
-        },
-        headers: {
-          'Content-Type': 'text/plain',
-        },
+        params: { uploadType: 'media' },
+        headers: { 'Content-Type': 'text/plain' },
         body: newContent,
       });
 
