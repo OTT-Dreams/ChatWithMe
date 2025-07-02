@@ -1,57 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>WhatsApp Chat Clone</title>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drive Chat App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body {
       font-family: 'Segoe UI', sans-serif;
       margin: 0;
-      padding: 0;
       background: #ece5dd;
     }
-
-    #chat-container {
+    #chat-box {
       max-width: 600px;
-      margin: auto;
-      background: #fff;
+      margin: 0 auto;
+      background: white;
+      height: 90vh;
       display: flex;
       flex-direction: column;
-      height: 100vh;
       border: 1px solid #ccc;
     }
-
     #messages {
       flex: 1;
       padding: 10px;
       overflow-y: auto;
+      background: #fff;
     }
-
     .message {
       background: #dcf8c6;
-      margin: 5px;
+      margin: 5px 0;
       padding: 8px 12px;
-      border-radius: 10px;
+      border-radius: 8px;
       max-width: 80%;
-      word-wrap: break-word;
     }
-
-    #input-container {
+    #input-area {
       display: flex;
       padding: 10px;
       background: #f0f0f0;
     }
-
-    #input {
+    #msg-input {
       flex: 1;
       padding: 10px;
-      font-size: 16px;
-      border: none;
       border-radius: 20px;
+      border: 1px solid #ccc;
       outline: none;
     }
-
     #send-btn {
       margin-left: 10px;
       padding: 10px 20px;
@@ -61,48 +52,174 @@
       border-radius: 20px;
       cursor: pointer;
     }
+    #authorize_button, #signout_button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
   </style>
 </head>
 <body>
-  <div id="chat-container">
+  <div id="chat-box">
     <div id="messages"></div>
-    <div id="input-container">
-      <input type="text" id="input" placeholder="Type a message..." />
+    <div id="input-area">
+      <input type="text" id="msg-input" placeholder="Type a message..." />
       <button id="send-btn">Send</button>
     </div>
   </div>
 
-  <script src="https://cdn.ably.io/lib/ably.min-1.js"></script>
-  <script>
-    const ably = new Ably.Realtime('x3A3zw.0cEwww:LKwrrj7RypK6l5y-WjlYh6sZUgxBQC8-4432KBULIew');
-    const channel = ably.channels.get('chat-room');
+  <div style="text-align:center;">
+    <button id="authorize_button">Sign In with Google</button>
+    <button id="signout_button" style="display:none;">Sign Out</button>
+  </div>
 
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script>
+    const CLIENT_ID = '223089359374-j7fh0seetlipaagvoq73s4489elnrfko.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyD41ZNerRUG1BhWZIReWxIUvYDoHXLrVuw';
+    const FOLDER_ID = '1IrGrZRsN90Eifzes7robm8ESg9tijudo';
+
+    let FILE_ID = null;
+
+    const DISCOVERY_DOCS = ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"];
+    const SCOPES = 'https://www.googleapis.com/auth/drive';
+
+    const authorizeButton = document.getElementById('authorize_button');
+    const signoutButton = document.getElementById('signout_button');
     const messagesDiv = document.getElementById('messages');
-    const input = document.getElementById('input');
+    const input = document.getElementById('msg-input');
     const sendBtn = document.getElementById('send-btn');
 
-    // Receive messages
-    channel.subscribe('message', function(msg) {
+    function appendMessage(text) {
       const div = document.createElement('div');
       div.className = 'message';
-      div.textContent = msg.data;
+      div.textContent = text;
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    });
+    }
 
-    // Send message
-    sendBtn.onclick = () => {
-      const text = input.value.trim();
-      if (text) {
-        channel.publish('message', text);
-        input.value = '';
+    function updateSigninStatus(isSignedIn) {
+      if (isSignedIn) {
+        authorizeButton.style.display = 'none';
+        signoutButton.style.display = 'inline-block';
+        loadChatFile();
+      } else {
+        authorizeButton.style.display = 'inline-block';
+        signoutButton.style.display = 'none';
       }
-    };
+    }
 
-    // Enter key to send
-    input.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") sendBtn.click();
+    function handleAuthClick() {
+      gapi.auth2.getAuthInstance().signIn();
+    }
+
+    function handleSignoutClick() {
+      gapi.auth2.getAuthInstance().signOut();
+    }
+
+    function initClient() {
+      gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        discoveryDocs: DISCOVERY_DOCS,
+        scope: SCOPES
+      }).then(function () {
+        gapi.auth2.getAuthInstance().isSignedIn.listen(updateSigninStatus);
+        updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
+        authorizeButton.onclick = handleAuthClick;
+        signoutButton.onclick = handleSignoutClick;
+      });
+    }
+
+    function loadChatFile() {
+      gapi.client.drive.files.list({
+        q: `'${FOLDER_ID}' in parents and name = 'chat.txt'`,
+        fields: "files(id, name)"
+      }).then(response => {
+        const files = response.result.files;
+        if (files && files.length > 0) {
+          FILE_ID = files[0].id;
+          readMessages();
+        } else {
+          createChatFile();
+        }
+      });
+    }
+
+    function createChatFile() {
+      const fileMetadata = {
+        name: 'chat.txt',
+        mimeType: 'text/plain',
+        parents: [FOLDER_ID]
+      };
+      const fileContent = 'Chat started:\n';
+      const blob = new Blob([fileContent], { type: 'text/plain' });
+      const file = new File([blob], 'chat.txt');
+
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(fileMetadata)], { type: 'application/json' }));
+      form.append('file', file);
+
+      fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+        method: 'POST',
+        headers: new Headers({ 'Authorization': 'Bearer ' + gapi.auth.getToken().access_token }),
+        body: form
+      }).then(res => res.json())
+        .then(val => {
+          FILE_ID = val.id;
+          readMessages();
+        });
+    }
+
+    function readMessages() {
+      gapi.client.drive.files.get({
+        fileId: FILE_ID,
+        alt: 'media'
+      }).then(response => {
+        messagesDiv.innerHTML = '';
+        const lines = response.body.split('\n');
+        lines.forEach(line => {
+          if (line.trim() !== '') appendMessage(line);
+        });
+      });
+    }
+
+    function sendMessage() {
+      const user = gapi.auth2.getAuthInstance().currentUser.get().getBasicProfile().getName();
+      const text = input.value.trim();
+      if (!text) return;
+
+      gapi.client.drive.files.get({
+        fileId: FILE_ID,
+        alt: 'media'
+      }).then(response => {
+        const current = response.body + `\n${user}: ${text}`;
+        const blob = new Blob([current], { type: 'text/plain' });
+
+        fetch(`https://www.googleapis.com/upload/drive/v3/files/${FILE_ID}?uploadType=media`, {
+          method: 'PATCH',
+          headers: new Headers({
+            'Authorization': 'Bearer ' + gapi.auth.getToken().access_token,
+            'Content-Type': 'text/plain'
+          }),
+          body: blob
+        }).then(() => {
+          input.value = '';
+          readMessages();
+        });
+      });
+    }
+
+    sendBtn.onclick = sendMessage;
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') sendMessage();
     });
+
+    function start() {
+      gapi.load('client:auth2', initClient);
+    }
+
+    start();
   </script>
 </body>
 </html>
